@@ -1,0 +1,56 @@
+clc
+clear
+
+num = 59;
+
+% vpa(KK(1:1),9)   %????
+
+
+
+str=(['load Calib_Results_old',num2str(1) '.mat', ';']);
+eval(str);
+
+ff = [KK(1,1) KK(2,2)];
+fcerror = fc_error';
+FC = [ff fcerror];
+    
+ccc = [KK(1,3) KK(2,3)];
+ccerror = cc_error';
+FCC = [ccc ccerror];
+
+PE = err_std';
+
+for i = 2:num
+    str=(['load Calib_Results_old',num2str(i) '.mat', ';']);
+    eval(str)
+    
+    ff = [KK(1,1) KK(2,2)];
+    fcerror = fc_error';
+    Fc = [ff fcerror];
+    FC = [FC;Fc];
+    
+    ccc = [KK(1,3) KK(2,3)];
+    ccerror = cc_error';
+    fcc = [ccc ccerror];
+    FCC = [FCC; fcc];
+    
+    PE=[PE;err_std'];
+end
+
+
+save fc.txt FC -ascii
+save fcc.txt FCC -ascii
+save picelError.txt PE -ascii
+
+
+% l = length(FC);
+% plot(1:l, FC(:,1),'r*-')
+% hold on
+% plot (1:l, FC(:,2),'g*-')
+% 
+% figure
+% plot(1:l, FC(:,3),'r*-')
+% hold on
+% plot (1:l, FC(:,4),'g*-')
+
+

@@ -1,0 +1,385 @@
+% MAIN Illustrates how to use the EPnP algorithm described in:
+%
+%       Francesc Moreno-Noguer, Vincent Lepetit, Pascal Fua.
+%       Accurate Non-Iterative O(n) Solution to the PnP Problem. 
+%       In Proceedings of ICCV, 2007. 
+%
+% Copyright (C) <2007>  <Francesc Moreno-Noguer, Vincent Lepetit, Pascal Fua>
+% 
+% This program is free software: you can redistribute it and/or modify
+% it under the terms of the version 3 of the GNU General Public License
+% as published by the Free Software Foundation.
+% 
+% This program is distributed in the hope that it will be useful, but
+% WITHOUT ANY WARRANTY; without even the implied warranty of
+% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+% General Public License for more details.       
+% You should have received a copy of the GNU General Public License
+% along with this program. If not, see <http://www.gnu.org/licenses/>.
+%
+% Francesc Moreno-Noguer, CVLab-EPFL, September 2007.
+% fmorenoguer@gmail.com, http://cvlab.epfl.ch/~fmoreno/ 
+
+clear all; close all;
+
+addpath data;
+addpath error;
+addpath EPnP;
+
+
+fprintf('\n---------EPnP--------------\n');
+num_of_iterate=1000;
+num_of_points=6;
+std_noise=2; %noise in the measurements (in pixels)
+x_cordinate=0;
+% for num_of_points=20:10:120
+for std_noise=0.5:0.5:5
+    x_cordinate=x_cordinate+1;
+    R_err_dlt=0;
+    T_err_dlt=0;
+    K_err_dlt=0;
+    Rep_err_dlt=0;
+
+    R_err_epnp=0;
+    T_err_epnp=0;
+    Rep_err_epnp=0;
+
+    R_err_unepnp=0;
+    T_err_unepnp=0;
+    K_err_unepnp=0;
+    Rep_err_unepnp=0;
+
+    R_err_unepnp_test=0;
+    T_err_unepnp_test=0;
+    Rep_err_unepnp_test=0;
+
+    R_err_unepnp_test_1=0;
+    T_err_unepnp_test_1=0;
+    Rep_err_unepnp_test_1=0;
+
+    tim_dlt_avg=0;
+    tim_epnp_avg=0;
+    tim_epnp_test_avg=0;
+    tim_epnp_test_1_avg=0;
+
+    fprintf('Number of points: %.1f\n',num_of_points);
+    fprintf('Noise: %.1f\n',std_noise);
+
+
+for k=1:num_of_iterate
+    %1.-Generate simulated input data------------------------------------------
+    load_points=0;
+    if ~load_points
+
+        [A,point,Rt,centroid]=generate_noisy_input_data(num_of_points,std_noise,'donotplot');
+        save('data\input_data_noise.mat','A','point','Rt','centroid');
+
+    else
+        load('data\input_data_noise.mat','A','point','Rt','centroid');
+    %     draw_noisy_input_data(point);
+    end
+
+
+    temp=Rt(1:3,1:3);
+    R_true=inv(temp);
+    T_true=centroid;
+    P_true=A(:,1:3)*[R_true,T_true];
+
+    %2.-Inputs format--------------------------------
+    n=size(point,2);
+    x3d=zeros(n,4);
+    x2d=zeros(n,3); 
+    A=A(:,1:3);
+
+    for i=1:n
+        x3d_h(i,:)=[point(i).Xworld',1]; 
+        x2d_h(i,:)=[point(i).Ximg(1:2)',1];
+        x2d_h_true(i,:)=[point(i).Ximg_true(1:2)',1];
+        %world and camera coordinates
+        X3d_world(i,:)=point(i).Xworld';
+        X3d_cam(i,:)=point(i).Xcam';
+    end
+
+
+    %=========DLT===================
+    Xw=x3d_h(:,1:3);
+    U=x2d_h(:,1:2);
+    U_true=x2d_h_true(:,1:2);
+    figure;hold on;
+    plot(U(:,1),U(:,2),'b*');
+    
+    tic;
+    [Kd,Rd,Td,Pd] = DLT(x3d_h,x2d_h);
+    tim=toc;
+    tim_dlt_avg=tim_dlt_avg+tim;
+    [error_of_dlt,Urep_of_dlt] = reprojection_error_usingRT(Xw,U,Rd,Td,Kd);
+    plot(Urep_of_dlt(:,1),Urep_of_dlt(:,2),'go');
+    Rep_err_dlt=Rep_err_dlt+error_of_dlt;
+    
+    errofRDLT_=Rd-R_true;
+    errofRDLT=sqrt(sum(sum(errofRDLT_.^2),2));
+    R_err_dlt=R_err_dlt+errofRDLT;
+
+    errofTDLT_=Td-T_true;
+    errofTDLT=sqrt(sum(errofTDLT_.^2));
+    T_err_dlt=T_err_dlt+errofTDLT;
+    
+    errofKDLT_=Kd-[800,0,0;0,800,0;0,0,1];
+    errofKDLT=sqrt(sum(sum(errofKDLT_.^2),2));
+    K_err_dlt=K_err_dlt+errofKDLT;
+    %======End of DLT======================
+
+    %========Epnp==============
+    tic;
+    [Rp,Tp,Xc,sol]=efficient_pnp(x3d_h,x2d_h,A);
+    tim_epnp=toc;
+    tim_epnp_avg=tim_epnp_avg+tim_epnp;
+    [error_of_epnp,Urep_of_epnp]=reprojection_error_usingRT(Xw,U,Rp,Tp,A);
+    plot(Urep_of_epnp(:,1),Urep_of_epnp(:,2),'ro');
+    Rep_err_epnp=Rep_err_epnp+error_of_epnp;
+    
+    errofREpnp_=Rp-R_true;
+    errofREpnp=sqrt(sum(sum(errofREpnp_.^2),2));
+    R_err_epnp=R_err_epnp+errofREpnp;
+    
+
+    errofTEpnp_=Tp-T_true;
+    errofTEpnp=sqrt(sum(errofTEpnp_.^2));
+    T_err_epnp=T_err_epnp+errofTEpnp;
+    tic;
+    [u,v]=efficient_pnp_posit(x3d_h,x2d_h,800);
+    Xw_test_1=[0,0,0;1,0,0;0,1,0;0,0,1];
+    U_test_1=[u(4),v(4);u(1:3),v(1:3)];
+    [R_t_1, T_t_1] = classicPosit(U_test_1, Xw_test_1, 800);
+    tim_epnp_test_1=toc;
+    tim_epnp_test_1_avg=tim_epnp_test_1_avg+tim_epnp_test_1;
+    errofRUnEpnptest_1_=R_t_1-R_true;
+    errofRUnEpnptest_1=sqrt(sum(sum(errofRUnEpnptest_1_.^2),2));
+    R_err_unepnp_test_1=R_err_unepnp_test_1+errofRUnEpnptest_1;
+    % errofTDLT_=R'*T-R_true'*T_true;
+    errofTUnEpnptest_1_=T_t_1'-T_true;
+    errofTUnEpnptest_1=sqrt(sum(errofTUnEpnptest_1_.^2));
+    T_err_unepnp_test_1=T_err_unepnp_test_1+errofTUnEpnptest_1;
+    [error_of_unepnp_test_1,Urep_of_afpnp] = reprojection_error_usingRT(Xw,U,R_t_1,T_t_1',A);
+    plot(Urep_of_afpnp(:,1),Urep_of_afpnp(:,2),'ko');
+    Rep_err_unepnp_test_1=Rep_err_unepnp_test_1+error_of_unepnp_test_1;
+    %========End of Epnp=============
+
+
+    %===========UnEpnp=============================
+
+    %1. Compute f
+    
+    [f,u,v]=test_compute_f_beta(x3d_h,x2d_h);
+    A=[f,0,0;0,f,0;0,0,1];
+    A0=[800,0,0;0,800,0;0,0,1];
+    [Ru,Tu,Xcu,solu]=efficient_pnp(x3d_h,x2d_h,A);
+    [error_of_unepnp,Urep] = reprojection_error_usingRT(Xw,U,Ru,Tu,A);
+    Rep_err_unepnp=Rep_err_unepnp+error_of_unepnp;
+    errofRUnEpnp_=Ru-R_true;
+    errofRUnEpnp=sqrt(sum(sum(errofRUnEpnp_.^2),2));
+    R_err_unepnp=R_err_unepnp+errofRUnEpnp;
+    
+    % errofTDLT_=R'*T-R_true'*T_true;
+    errofTUnEpnp_=Tu-T_true;
+    errofTUnEpnp=sqrt(sum(errofTUnEpnp_.^2));
+    T_err_unepnp=T_err_unepnp+errofTUnEpnp;
+    
+    errofKUnEpnp_=A-[800,0,0;0,800,0;0,0,1];
+    errofKUnEpnp=sqrt(sum(sum(errofKUnEpnp_.^2),2));
+    K_err_unepnp=K_err_unepnp+errofKUnEpnp;
+
+    %=========== End of UnEpnp=============================
+    
+    %==========UnEpnp test================================
+    tic;
+    [f,u,v]=test_compute_f_beta(x3d_h,x2d_h);
+    Xw_test=[0,0,0;1,0,0;0,1,0;0,0,1];
+    U_test=[u(4),v(4);u(1:3),v(1:3)];
+    [R_t, T_t] = classicPosit(U_test, Xw_test, f);
+    tim_epnp_test=toc;
+    tim_epnp_test_avg=tim_epnp_test_avg+tim_epnp_test;
+    errofRUnEpnptest_=R_t-R_true;
+    errofRUnEpnptest=sqrt(sum(sum(errofRUnEpnptest_.^2),2));
+    R_err_unepnp_test=R_err_unepnp_test+errofRUnEpnptest;
+    % errofTDLT_=R'*T-R_true'*T_true;
+    errofTUnEpnptest_=T_t'-T_true;
+    errofTUnEpnptest=sqrt(sum(errofTUnEpnptest_.^2));
+    [error_of_unepnp_test,Urep_afufpnp] = reprojection_error_usingRT(Xw,U,R_t,T_t',A);
+    plot(Urep_afufpnp(:,1),Urep_afufpnp(:,2),'k*');
+    T_err_unepnp_test=T_err_unepnp_test+errofTUnEpnptest;
+    Rep_err_unepnp_test=Rep_err_unepnp_test+error_of_unepnp_test;
+    %===========End of UnEpnp test=======================
+    
+%     [error_dlt_true,Urep_dlt_true] = reprojection_error_usingRT(Xw,U_true,Rd,Td,Kd);
+%     [error_epnp_true,Urep_epnp_true]=reprojection_error_usingRT(Xw,U_true,Rp,Tp,A0);
+%     [error_unepnp_true,Urep_unepnp_true]=reprojection_error_usingRT(Xw,U_true,Ru,Tu,A);
+%     [error_unepnp_test_true,Urep_unepnp_test_true]=reprojection_error_usingRT(Xw,U_true,R_t,T_t',A);
+end
+
+%==============Output error of DLT=======================
+fprintf('Error of R of DLT: %.5f\n',R_err_dlt/num_of_iterate);
+R_dlt(x_cordinate)=R_err_dlt/num_of_iterate;
+fid=['R_err_dlt','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',R_err_dlt/num_of_iterate);
+fclose(c);
+
+fprintf('Error of T of DLT: %.5f\n',T_err_dlt/num_of_iterate);
+T_dlt(x_cordinate)=T_err_dlt/num_of_iterate;
+fid=['T_err_dlt','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',T_err_dlt/num_of_iterate);
+fclose(c);
+
+fprintf('Error of K of DLT: %.5f\n',K_err_dlt/num_of_iterate);
+K_dlt(x_cordinate)=K_err_dlt/num_of_iterate;
+fid=['K_err_dlt','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',K_err_dlt/num_of_iterate);
+fclose(c);
+
+fprintf('Reprojection error of DLT: %.5f\n',Rep_err_dlt/num_of_iterate);
+Rep_dlt(x_cordinate)=Rep_err_dlt/num_of_iterate;
+fid=['Rep_err_dlt','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',Rep_err_dlt/num_of_iterate);
+fclose(c);
+%=========End of output error of DLT=======================
+
+%==============Output error of Epnp=======================
+fprintf('Error of R of Epnp: %.5f\n',R_err_epnp/num_of_iterate);
+R_epnp(x_cordinate)=R_err_epnp/num_of_iterate;
+fid=['R_err_epnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',R_err_epnp/num_of_iterate);
+fclose(c);
+
+fprintf('Error of T of Epnp: %.5f\n',T_err_epnp/num_of_iterate);
+T_epnp(x_cordinate)=T_err_epnp/num_of_iterate;
+fid=['T_err_epnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',T_err_epnp/num_of_iterate);
+fclose(c);
+
+fprintf('Reprojection error of Epnp: %.5f\n',Rep_err_epnp/num_of_iterate);
+Rep_epnp(x_cordinate)=Rep_err_epnp/num_of_iterate;
+fid=['Rep_err_epnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',Rep_err_epnp/num_of_iterate);
+fclose(c);
+%==============End of output error of Epnp=======================
+
+%==============Output error of Eppnp=======================
+fprintf('Error of R of UnEpnp test 1: %.5f\n',R_err_unepnp_test_1/num_of_iterate);
+R_afpnp(x_cordinate)=R_err_unepnp_test_1/num_of_iterate;
+fid=['R_err_eppnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',R_err_unepnp_test_1/num_of_iterate);
+fclose(c);
+
+fprintf('Error of T of UnEpnp test 1: %.5f\n',T_err_unepnp_test_1/num_of_iterate);
+T_afpnp(x_cordinate)=T_err_unepnp_test_1/num_of_iterate;
+fid=['T_err_eppnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',T_err_unepnp_test_1/num_of_iterate);
+fclose(c);
+
+fprintf('Reprojection error of UnEpnp test 1: %.5f\n',Rep_err_unepnp_test_1/num_of_iterate);
+Rep_afpnp(x_cordinate)=Rep_err_unepnp_test_1/num_of_iterate;
+fid=['Rep_err_eppnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',Rep_err_unepnp_test_1/num_of_iterate);
+fclose(c);
+%==============End of output error of Eppnp=======================
+
+
+fprintf('Error of R of UnEpnp: %.5f\n',R_err_unepnp/num_of_iterate);
+fprintf('Error of T of UnEpnp: %.5f\n',T_err_unepnp/num_of_iterate);
+fprintf('Error of K of UnEpnp: %.5f\n',K_err_unepnp/num_of_iterate);
+K_afufpnp(x_cordinate)=K_err_unepnp/num_of_iterate;
+fid=['K_err_epupnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',K_err_unepnp/num_of_iterate);
+fclose(c);
+
+fprintf('Reprojection error of UnEpnp: %.5f\n',Rep_err_unepnp/num_of_iterate);
+
+fprintf('Error of R of UnEpnp test: %.5f\n',R_err_unepnp_test/num_of_iterate);
+R_afufpnp(x_cordinate)=R_err_unepnp_test/num_of_iterate;
+fid=['R_err_epupnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',R_err_unepnp_test/num_of_iterate);
+fclose(c);
+
+fprintf('Error of T of UnEpnp test: %.5f\n',T_err_unepnp_test/num_of_iterate);
+T_afufpnp(x_cordinate)=T_err_unepnp_test/num_of_iterate;
+fid=['T_err_epupnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',T_err_unepnp_test/num_of_iterate);
+fclose(c);
+
+fprintf('Reprojection error of UnEpnp test: %.5f\n',Rep_err_unepnp_test/num_of_iterate);
+Rep_afufpnp(x_cordinate)=Rep_err_unepnp_test/num_of_iterate;
+fid=['Rep_err_epupnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',Rep_err_unepnp_test/num_of_iterate);
+fclose(c);
+
+fprintf('Time of dlt: %.5f\n',tim_dlt_avg/num_of_iterate);
+time_dlt(x_cordinate)=tim_dlt_avg/num_of_iterate;
+fid=['Time_of_dlt','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',tim_dlt_avg/num_of_iterate);
+fclose(c);
+
+fprintf('Time of epnp: %.5f\n',tim_epnp_avg/num_of_iterate);
+time_epnp(x_cordinate)=tim_epnp_avg/num_of_iterate;
+fid=['Time_of_epnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',tim_epnp_avg/num_of_iterate);
+fclose(c);
+
+fprintf('Time of epnp test 1: %.5f\n',tim_epnp_test_1_avg/num_of_iterate);
+time_afpnp(x_cordinate)=tim_epnp_test_1_avg/num_of_iterate;
+fid=['Time_of_eppnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',tim_epnp_test_1_avg/num_of_iterate);
+fclose(c);
+
+fprintf('Time of epnp test: %.5f\n',tim_epnp_test_avg/num_of_iterate);
+time_afufpnp(x_cordinate)=tim_epnp_test_avg/num_of_iterate;
+fid=['Time_of_epupnp','.txt'];
+c=fopen(fid,'a');
+fprintf(c,'%.5f\n',tim_epnp_test_avg/num_of_iterate);
+fclose(c);
+
+fprintf('========================================================\n');
+end
+
+R_F=sqrt(sum(sum(R_true.^2),2));
+T_F=sqrt(sum(T_true.^2));
+K_true=[800,0,0;0,800,0;0,0,1];
+K_F=sqrt(sum(sum(K_true.^2),2));
+
+
+
+figure;
+% t=20:10:120;
+t=0.5:0.5:5
+plot(t,R_dlt./R_F,'*',t,R_epnp./R_F,'+',t,R_afpnp./R_F,'o',t,R_afufpnp./R_F,'*');
+
+figure;
+plot(t,T_dlt./T_F,'*',t,T_epnp./T_F,'+',t,T_afpnp./T_F,'o',t,T_afufpnp./T_F,'*');
+
+figure;
+plot(t,K_dlt./K_F,'*',t,K_afufpnp./K_F,'*');
+
+figure;
+plot(t,Rep_dlt,'*',t,Rep_epnp,'+',t,Rep_afpnp,'o',t,Rep_afufpnp,'*');
+
+figure;
+plot(t,time_dlt,'*',t,time_epnp,'+',t,time_afpnp,'o',t,time_afufpnp,'*');
+
+
+

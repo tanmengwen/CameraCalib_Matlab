@@ -1,0 +1,189 @@
+fprintf('\n---------Real data --------------\n');
+clear all;
+close all;
+
+addpath data;
+addpath error;
+addpath EPnP;
+
+k=1;
+
+for i=7:-1:0
+    for j=0:8
+        Xw(k,1:3)=[0,j,i];
+        k=k+1;
+    end
+end
+
+for i=1:7
+    for j=0:8
+        Xw(k,1:3)=[i,j,0];
+        k=k+1;
+    end
+end
+
+
+n=size(Xw,1);
+  
+%=======获取图像坐标=====================
+load('tu1.mat','x','y');
+
+U=[x,y];
+U=U./100;
+std_noise=0;
+for i=1:n
+    noise=randn(1,2)*std_noise;
+    U0(i,1)=U(i,1)-1.6351+noise(1);
+    U0(i,2)=U(i,2)-1.5532+noise(2);
+end
+%=======END OF 获取图像坐标=====================
+[Kt,Rt,Tt,Pt] = DLT(Xw,U)
+
+[err,Urep] = reprojection_error_usingRT(Xw,U,Rt,Tt,Kt);
+%=======自定义内参矩阵获取图像和世界坐标=====================
+K=[800,0,0;0,800,0;0,0,1];
+% R=[-0.4479,-0.8934,0.0347;0.1781,-0.1272,-0.9757;0.8762,-0.4308,0.2161];
+% t=[5.0895,4.1999,-19.5465]';
+
+R=Rt;
+t=Tt;
+P=[R,t];
+
+Xw_h=[Xw,ones(n,1)];
+Xc=(P*Xw_h')';%获取摄像机坐标
+
+% figure;
+% plot3(Xc(:,1),Xc(:,2),Xc(:,3),'*');
+
+x2d_h=zeros(n,3);
+U_cal=zeros(n,2);
+for i=1:n
+    x2d_h(i,1:3)=K*Xc(i,1:3)';
+    U_cal(i,1)=x2d_h(i,1)/x2d_h(i,3);
+    U_cal(i,2)=x2d_h(i,2)/x2d_h(i,3);
+end
+
+
+
+
+figure;
+plot(U_cal(:,1),U_cal(:,2),'b*');
+centroid=[0 0 0]';
+
+for i=1:n
+    temp=Xc(i,1:3);
+    centroid=centroid+Xc(i,1:3)';    
+end
+centroid=centroid/n;
+
+alpha=25*pi/180;
+beta=25*pi/180;
+gamma=25*pi/180;
+
+Rt(1,1)=cos(alpha)*cos(gamma)-cos(beta)*sin(alpha)*sin(gamma);
+Rt(2,1)=cos(gamma)*sin(alpha)+cos(alpha)*cos(beta)*sin(gamma);
+Rt(3,1)=sin(beta)*sin(gamma);
+
+
+Rt(1,2)=-cos(beta)*cos(gamma)*sin(alpha)-cos(alpha)*sin(gamma);
+Rt(2,2)=cos(alpha)*cos(beta)*cos(gamma)-sin(alpha)*sin(gamma);
+Rt(3,2)=cos(gamma)*sin(beta);
+
+
+Rt(1,3)=sin(alpha)*sin(beta);
+Rt(2,3)=-cos(alpha)*sin(beta);
+Rt(3,3)=cos(beta);
+
+Xw_cal=zeros(n,3);
+for i=1:n
+   Xw_cal(i,1:3)=Rt*(Xc(i,1:3)'-centroid); 
+end
+
+% figure;
+% plot3(Xw_cal(:,1),Xw_cal(:,2),Xw_cal(:,3),'*');
+
+Xw=Xw_cal;
+
+%=============END OF 自定义内参矩阵获取图像和世界坐标============
+err_dlt=0;
+err_epnp=0;
+err_afpnp=0;
+err_afufpnp=0;
+
+std_noise=10;
+for k=1:1   
+    for i=1:n
+        noise=randn(1,2)*std_noise;
+        U_cal_noise(i,1)=U_cal(i,1)+noise(1);
+        U_cal_noise(i,2)=U_cal(i,2)+noise(2);
+    end
+
+    %==========DLT===================
+
+
+    [Kd,Rd,Td,Pd] = DLT(Xw,U_cal_noise);
+    % Kd
+    % Rd
+    % Td
+    % Pd
+    [err_d,Urep_d] = reprojection_error_usingRT(Xw,U_cal,Rd,Td,Kd);
+    err_dlt=err_dlt+err_d;
+
+    figure;hold on;
+  %  plot(U_cal(:,1),U_cal(:,2),'b*');
+     plot(Urep_d(:,1),Urep_d(:,2),'go');
+
+    %==========END OF DLT===================
+
+     x3d_h=[Xw_cal,ones(135,1)];
+    x2d_h=[U_cal_noise,ones(135,1)];
+    %===========EPnP=======================
+    
+    [Rp,Tp,Xcp,sol]=efficient_pnp(x3d_h,x2d_h,K);
+    % Rp
+    % Tp
+
+    [err_e,Urep_e] = reprojection_error_usingRT(Xw,U_cal,Rp,Tp,K);
+    err_epnp=err_epnp+err_e;
+    plot(Urep_e(:,1),Urep_e(:,2),'g*')
+    
+    %=========End of EPnP=========================================
+    
+
+
+    %===========AFPnP=======================
+
+
+    [u,v]=efficient_pnp_posit(x3d_h,x2d_h,800);
+    Xw_test_1=[0,0,0;1,0,0;0,1,0;0,0,1];
+    U_test_1=[u(4),v(4);u(1:3),v(1:3)];
+    [R_afpnp, T_afpnp] = classicPosit(U_test_1, Xw_test_1,800);
+    [err_af,Urep_af] = reprojection_error_usingRT(Xw,U_cal,R_afpnp,T_afpnp',K);
+    err_afpnp=err_afpnp+err_af;
+    plot(Urep_af(:,1),Urep_af(:,2),'ro');
+    
+    %=========END OFAFPnP=================
+
+
+    
+
+    %==========afufpnp================================
+    [f,u,v]=test_compute_f_beta(x3d_h,x2d_h);
+    Xw_test=[0,0,0;1,0,0;0,1,0;0,0,1];
+    U_test=[u(4),v(4);u(1:3),v(1:3)];
+    [R_afufpnp, T_afufpnp] = classicPosit(U_test, Xw_test, f);
+    Kf=[f,0,0;0,f,0;0,0,1];
+    [err_afuf,Urep_afuf] = reprojection_error_usingRT(Xw,U_cal,R_afufpnp,T_afufpnp',Kf);
+    err_afufpnp=err_afufpnp+err_afuf;
+    plot(Urep_afuf(:,1),Urep_afuf(:,2),'ro');
+    %==========end of afufpnp================================
+end
+
+err_dlt
+err_epnp
+err_afpnp
+err_afufpnp
+
+
+
+%=========END OF EPnP=================
